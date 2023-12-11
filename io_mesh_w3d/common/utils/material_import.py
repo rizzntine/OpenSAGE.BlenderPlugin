@@ -32,7 +32,8 @@ def create_vertex_material(context, principleds, structure, mesh, b_mesh, name, 
             tex = find_texture(context, texture.file, texture.id)            
             principleds[tex_id].base_color_texture.image = tex
             principleds[tex_id].alpha_texture.image = tex
-            mesh.materials[tex_id]["md3shader"] = texture.file
+            var_md3shader = str(texture.file)
+            mesh.materials[tex_id]["md3shader"] = var_md3shader.rsplit('.', 1)[0] if '.' in var_md3shader else var_md3shader
 
         # Assign material to appropriate object faces
         bpy.ops.object.mode_set(mode = 'EDIT')
@@ -58,7 +59,8 @@ def create_vertex_material(context, principleds, structure, mesh, b_mesh, name, 
                 tex = find_texture(context, texture.file, texture.id)
                 principleds[mat_id].base_color_texture.image = tex
                 principleds[mat_id].alpha_texture.image = tex
-                mesh.materials[mat_id]["md3shader"] = texture.file
+                var_md3shader = str(texture.file)
+                mesh.materials[mat_id]["md3shader"] = var_md3shader.rsplit('.', 1)[0] if '.' in var_md3shader else var_md3shader
          
     #Iterate through all materials and set their blend mode to Alpha Clip for transparency
     for material in mesh.materials:
