@@ -303,7 +303,7 @@ def retrieve_meshes(context, hierarchy, rig, container_name, force_vertex_materi
                     uv_layer.data[loop.index].uv.copy()
 
             tx_stages.append(stage)
-            
+
         # Create material passes
         #
         # importer is looking for:
@@ -379,8 +379,6 @@ def retrieve_meshes(context, hierarchy, rig, container_name, force_vertex_materi
                         mat_pass.tx_coords_2 = tx_stages[1].tx_coords[0]
 
                 mesh_struct.material_passes.append(mat_pass)
-
-
 
         for layer in mesh.vertex_colors:
             if '_' in layer.name:
