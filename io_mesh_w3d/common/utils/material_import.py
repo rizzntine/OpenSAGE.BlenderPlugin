@@ -15,8 +15,8 @@ from io_mesh_w3d.w3d.structs.mesh_structs.vertex_material import *
 
 def create_vertex_material(context, principleds, structure, mesh, b_mesh, name, triangles, mesh_ob):
 
-    if len(structure.material_passes) == 1 and len(
-            structure.textures) > 1:  # condition for multiple materials per single mesh object
+    # condition for multiple materials per single mesh object
+    if len(structure.material_passes) == 1 and len(structure.textures) > 1:
         # Create the same amount of materials as textures used for this mesh
         source_mat = structure.vert_materials[0]
         for texture in structure.textures:
@@ -44,11 +44,29 @@ def create_vertex_material(context, principleds, structure, mesh, b_mesh, name, 
         bpy.ops.object.mode_set(mode='EDIT')
         bm = bmesh.from_edit_mesh(mesh_ob.data)
         bm.faces.ensure_lookup_table()
-        for i, face in enumerate(bm.faces):
-            if(i < len(structure.material_passes[0].tx_stages[0].tx_ids[0])):
-                bm.faces[i].material_index = structure.material_passes[0].tx_stages[0].tx_ids[0][i]
-            else:
-                bm.faces[i].material_index = structure.material_passes[0].tx_stages[0].tx_ids[0][0]
+
+        face_texture_ids = (
+            structure.material_passes[0]
+            .tx_stages[0]
+            .tx_ids[0]
+        )
+
+        if len(face_texture_ids) != len(bm.faces):
+            context.error(
+                f"texture face count ({len(face_texture_ids)}) does not "
+                f"match mesh face count ({len(bm.faces)})!"
+            )
+        else:
+            for i, face in enumerate(bm.faces):
+                texture_id = face_texture_ids[i]
+
+                if 0 <= texture_id < len(mesh.materials):
+                    face.material_index = texture_id
+                else:
+                    face.material_index = 0
+
+        bmesh.update_edit_mesh(mesh_ob.data)
+
         bpy.ops.object.mode_set(mode='OBJECT')
     else:
         for vertMat in structure.vert_materials:
