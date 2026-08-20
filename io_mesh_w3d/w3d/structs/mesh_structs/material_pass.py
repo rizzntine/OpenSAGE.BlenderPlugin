@@ -80,7 +80,7 @@ class MaterialPass:
         self.shader_material_ids = shader_material_ids if shader_material_ids is not None else []
         self.tx_stages = tx_stages if tx_stages is not None else []
         self.tx_coords = tx_coords if tx_coords is not None else []
-        self.tx_coords_2 = tx_coords if tx_coords is not None else []
+        self.tx_coords_2 = tx_coords_2 if tx_coords_2 is not None else []
 
     @staticmethod
     def read(context, io_stream, chunk_end):
