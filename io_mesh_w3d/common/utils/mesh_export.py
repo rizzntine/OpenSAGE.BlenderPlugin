@@ -210,70 +210,177 @@ def retrieve_meshes(context, hierarchy, rig, container_name, force_vertex_materi
         header.sphCenter = center
         header.sphRadius = radius
 
-        tx_stages = []
-        for i, uv_layer in enumerate(mesh.uv_layers):
-            stage = TextureStage(
-                tx_ids=[[i]],
-                tx_coords=[[Vector((0.0, 0.0))] * len(mesh_struct.verts)])
+        # materials / textures rework
+        texture_indices = {}
+        material_indices = {}
 
-            for j, face in enumerate(b_mesh.faces):
-                for loop in face.loops:
-                    vert_index = mesh_struct.triangles[j].vert_ids[loop.index % 3]
-                    stage.tx_coords[0][vert_index] = uv_layer.data[loop.index].uv.copy()
-            tx_stages.append(stage)
-
-        b_mesh.free()
-
-        for i, material in enumerate(mesh.materials):
-            mat_pass = MaterialPass()
-
+        for mat_index, material in enumerate(mesh.materials):
             if material is None:
-                context.warning(f'mesh \'{mesh_object.name}\' uses a invalid/empty material!')
                 continue
 
-            principled = node_shader_utils.PrincipledBSDFWrapper(material, is_readonly=True)
+            principled = node_shader_utils.PrincipledBSDFWrapper(
+                material,
+                is_readonly=True
+            )
 
-            used_textures = get_used_textures(material, principled, used_textures)
+            base_col_tex = principled.base_color_texture
 
-            if context.file_format == 'W3X' or (
-                    material.material_type == 'SHADER_MATERIAL' and not force_vertex_materials):
-                mat_pass.shader_material_ids = [i]
-                if i < len(tx_stages):
-                    mat_pass.tx_coords = tx_stages[i].tx_coords[0]
-                # FIX ME: ugly solution to export second uv map!
-                # How to deal with multiple materials aganist multiple UV maps in a mesh?
-                if len(mesh.materials) == 1 and len(tx_stages) == 2:
-                    mat_pass.tx_coords_2 = tx_stages[i + 1].tx_coords[0]
+            if base_col_tex is not None and base_col_tex.image is not None:
+                img = base_col_tex.image
 
-                mesh_struct.shader_materials.append(
-                    retrieve_shader_material(context, material, principled))
-
-            else:
-                shader = retrieve_shader(material)
-                mesh_struct.shaders.append(shader)
-                mat_pass.shader_ids = [i]
-                mat_pass.vertex_material_ids = [i]
-
-                mesh_struct.vert_materials.append(retrieve_vertex_material(material, principled))
-
-                base_col_tex = principled.base_color_texture
-                if base_col_tex is not None and base_col_tex.image is not None:
+                if img.name not in texture_indices:
                     info = TextureInfo()
-                    img = base_col_tex.image
+
                     filepath = os.path.basename(img.filepath)
                     if filepath == '':
                         filepath = img.name
+
                     tex = Texture(
                         id=img.name,
                         file=filepath,
-                        texture_info=info)
+                        texture_info=info
+                    )
+
+                    texture_indices[img.name] = len(mesh_struct.textures)
                     mesh_struct.textures.append(tex)
+
+                texture_indices[mat_index] = texture_indices[img.name]
+
+            # create corresponding material
+            if (
+                context.file_format == 'W3X'
+                or (
+                    material.material_type == 'SHADER_MATERIAL'
+                    and not force_vertex_materials
+                )
+            ):
+                material_indices[mat_index] = len(
+                    mesh_struct.shader_materials
+                )
+
+                mesh_struct.shader_materials.append(
+                    retrieve_shader_material(
+                        context,
+                        material,
+                        principled
+                    )
+                )
+
+            else:
+                material_indices[mat_index] = len(
+                    mesh_struct.vert_materials
+                )
+
+                shader = retrieve_shader(material)
+                mesh_struct.shaders.append(shader)
+
+                mesh_struct.vert_materials.append(
+                    retrieve_vertex_material(material, principled)
+                )
+
+                if (
+                    base_col_tex is not None
+                    and base_col_tex.image is not None
+                ):
                     shader.texturing = 1
 
-                    if i < len(tx_stages):
-                        mat_pass.tx_stages.append(tx_stages[i])
+        # tx_coords are UV coordinates, tx_ids are texture indices
+        tx_stages = []
+
+        for uv_layer_index, uv_layer in enumerate(mesh.uv_layers):
+            stage = TextureStage()
+
+            # Texture IDs are filled in below. Do NOT put uv_layer_index here.
+            stage.tx_ids.append([])
+
+            # One UV coordinate per exported vertex.
+            stage.tx_coords.append(
+                [Vector((0.0, 0.0)) for _ in mesh_struct.verts]
+            )
+
+            for loop in mesh.loops:
+                stage.tx_coords[0][loop.vertex_index] = \
+                    uv_layer.data[loop.index].uv.copy()
+
+            tx_stages.append(stage)
+            
+        # Create material passes
+        #
+        # importer is looking for:
+        # tx_stages[0].tx_ids[0][face_index]
+
+        if mesh_struct.vert_materials:
+            mat_pass = MaterialPass()
+            mat_pass.vertex_material_ids = [0]
+
+            if mesh_struct.textures:
+                stage = tx_stages[0]
+
+                for poly in mesh.polygons:
+                    mat_index = poly.material_index
+                    texture_index = texture_indices.get(mat_index)
+
+                    if texture_index is None:
+                        context.error(
+                            f"mesh '{mesh_object.name}' face {poly.index} "
+                            f"uses material {mat_index}, but that material has "
+                            f"no exported texture!"
+                        )
+                        return ([], [])
+
+                    if not 0 <= texture_index < len(mesh_struct.textures):
+                        context.error(
+                            f"mesh '{mesh_object.name}' face {poly.index} "
+                            f"has invalid texture index {texture_index}; "
+                            f"texture count is {len(mesh_struct.textures)}!"
+                        )
+                        return ([], [])
+
+                    stage.tx_ids[0].append(texture_index)
+
+                mat_pass.tx_stages.append(stage)
+
+                mat_pass.tx_coords = stage.tx_coords[0]
+
+                if len(tx_stages) > 1:
+                    mat_pass.tx_coords_2 = tx_stages[1].tx_coords[0]
 
             mesh_struct.material_passes.append(mat_pass)
+
+        else:
+            for mat_index, material in enumerate(mesh.materials):
+                if material is None:
+                    continue
+
+                shader_mat_index = material_indices.get(mat_index)
+                if shader_mat_index is None:
+                    continue
+
+                mat_pass = MaterialPass()
+                mat_pass.shader_material_ids = [shader_mat_index]
+
+                if tx_stages:
+                    stage = tx_stages[0]
+
+                    # Texture stage still refers to W3D texture indices.
+                    texture_index = texture_indices.get(mat_index)
+
+                    if texture_index is not None:
+                        stage.tx_ids[0] = [
+                            texture_index
+                            for _ in mesh.polygons
+                            if True
+                        ]
+
+                    mat_pass.tx_stages.append(stage)
+                    mat_pass.tx_coords = stage.tx_coords[0]
+
+                    if len(tx_stages) > 1:
+                        mat_pass.tx_coords_2 = tx_stages[1].tx_coords[0]
+
+                mesh_struct.material_passes.append(mat_pass)
+
+
 
         for layer in mesh.vertex_colors:
             if '_' in layer.name:
